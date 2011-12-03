@@ -1,6 +1,6 @@
 name: MachinaPump
 version: 1.3
-description: A Machina that drains an area of water, or fills it.
+description: A Machina that drains or fills an area of water.
 author: Lyneira
 main: me.lyneira.MachinaPump.MachinaPump
 depend: [MachinaCraft]

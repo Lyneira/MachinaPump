@@ -1,8 +1,8 @@
 MachinaPump
 ============
 
-A plugin for MachinaCraft. It implements a Machina that can drain an area of
-water, or fill it.
+A plugin for MachinaCraft. It implements a Machina that can drain or fill an
+area of water.
 
 General information about the plugin, comments page and issue tracker can be
 found at the [BukkitDev project page][project].
