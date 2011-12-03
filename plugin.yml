@@ -1,0 +1,22 @@
+name: MachinaPump
+version: 1.3
+description: A Machina that drains an area of water, or fills it.
+author: Lyneira
+main: me.lyneira.MachinaPump.MachinaPump
+depend: [MachinaCraft]
+permissions:
+    machinapump.*:
+        description: Gives full access to using a pump, including deactivating another player's pump.
+        children:
+            machinapump.activate: true
+            machinapump.deactivate-own: true
+            machinapump.deactivate-all: true
+    machinapump.activate:
+        description: Allows activating a pump.
+        default: op
+    machinapump.deactivate-own:
+        description: Allows deactivating the player's own pump.
+        default: op
+    machinapump.deactivate-all:
+        description: Allows deactivating any pump.
+        default: op
