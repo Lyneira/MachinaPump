@@ -19,7 +19,6 @@ final class Blueprint implements MachinaBlueprint {
     final static Blueprint instance = new Blueprint();
     
     final static Material anchorMaterial = Material.GOLD_BLOCK;
-    final static Material drainMaterial = Material.WOOD;
     
     
     private Blueprint() {
@@ -33,20 +32,24 @@ final class Blueprint implements MachinaBlueprint {
         if (!anchor.checkType(anchorMaterial))
             return null;
 
-        BlockRotation leverRotation;
-        try {
-            leverRotation = BlockRotation.yawFromBlockFace(leverFace);
-        } catch (Exception e) {
-            return null;
-        }
-        
-        BlockRotation[] possibleDirections = {leverRotation.getLeft(), leverRotation.getRight()};
-        for (BlockRotation i : possibleDirections) {
-            if (anchor.getRelative(i.getYawFace()).checkType(Material.FURNACE)) {
-                return new Pump(i.getOpposite(), player, anchor, leverFace);
+        BlockRotation yaw = null;
+        BlockFace cauldron = null;
+        for (BlockRotation i : BlockRotation.values()) {
+            BlockFace face = i.getYawFace();
+            BlockLocation location = anchor.getRelative(face);
+            if (location.checkType(Material.FURNACE)) {
+                yaw = i.getOpposite();
+            } else if (location.checkType(Material.CAULDRON)) {
+                cauldron = face;
             }
         }
+        if (anchor.getRelative(BlockFace.UP).checkType(Material.CAULDRON)) {
+            cauldron = BlockFace.UP;
+        }
         
+        if (yaw != null && cauldron != null) {
+            return new Pump(yaw, player, anchor, leverFace, cauldron);
+        }
         return null;
     }
 }

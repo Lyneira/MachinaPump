@@ -1,9 +1,11 @@
 package me.lyneira.MachinaPump;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.Furnace;
@@ -25,26 +27,28 @@ import me.lyneira.MachinaCraft.Machina;
  * @author Lyneira
  */
 final class Pump implements Machina {
-
-    private static final int maxLength = 8;
-    private static final int maxDepth = 6;
-    private static final int maxWidth = 4;
+    private final static Material tubeMaterial = Material.WOOD;
+    private static final int maxLength = 9;
+    private static final int maxDepth = 8;
     private static final int delay = 10;
+    private static final BlockVector down = new BlockVector(0, -1, 0);
 
     private final Player player;
     private final BlockLocation anchor;
     private final BlockFace leverFace;
+    private final BlockFace cauldronFace;
     private final BlockVector forward;
     private final BlockFace backward;
     private final BlockVector left;
     private final BlockVector right;
 
-    private final List<BlockLocation> drain = new ArrayList<BlockLocation>(maxLength);
+    private final List<BlockLocation> tube = new ArrayList<BlockLocation>(maxLength);
 
-    Pump(BlockRotation yaw, Player player, BlockLocation anchor, BlockFace leverFace) {
+    Pump(BlockRotation yaw, Player player, BlockLocation anchor, BlockFace leverFace, BlockFace cauldronFace) {
         this.player = player;
         this.anchor = anchor;
         this.leverFace = leverFace;
+        this.cauldronFace = cauldronFace;
         forward = new BlockVector(yaw.getYawFace());
         left = new BlockVector(yaw.getLeft().getYawFace());
         backward = yaw.getOpposite().getYawFace();
@@ -55,10 +59,11 @@ final class Pump implements Machina {
 
     @Override
     public boolean verify(BlockLocation anchor) {
-        if (!(anchor.checkType(Blueprint.anchorMaterial) && anchor.getRelative(leverFace).checkType(Material.LEVER) && anchor.getRelative(backward).checkType(Material.BURNING_FURNACE)))
+        if (!(anchor.checkType(Blueprint.anchorMaterial) && anchor.getRelative(leverFace).checkType(Material.LEVER) && anchor.getRelative(backward).checkType(Material.BURNING_FURNACE) && anchor
+                .getRelative(cauldronFace).checkType(Material.CAULDRON)))
             return false;
-        for (BlockLocation i : drain) {
-            if (!i.checkType(Blueprint.drainMaterial))
+        for (BlockLocation i : tube) {
+            if (!i.checkType(tubeMaterial))
                 return false;
         }
         return true;
@@ -66,8 +71,8 @@ final class Pump implements Machina {
 
     @Override
     public HeartBeatEvent heartBeat(BlockLocation anchor) {
-        phase = phase.run();
-        if (phase == null)
+        stage = stage.run();
+        if (stage == null)
             return null;
 
         return new HeartBeatEvent(delay, anchor);
@@ -76,8 +81,8 @@ final class Pump implements Machina {
     @Override
     public boolean onLever(BlockLocation anchor, Player player, ItemStack itemInHand) {
         if ((this.player == player && player.hasPermission("machinapump.deactivate-own")) || player.hasPermission("machinapump.deactivate-all")) {
-            if (!(phase instanceof Retract)) {
-                phase = new Retract();
+            if (!(stage instanceof Retract)) {
+                stage = new Retract();
             }
         }
         return true;
@@ -109,7 +114,7 @@ final class Pump implements Machina {
      * @param data
      */
     void setCauldron(byte data) {
-        anchor.getRelative(BlockFace.UP).setData(data);
+        anchor.getRelative(cauldronFace).setData(data);
     }
 
     /**
@@ -123,7 +128,7 @@ final class Pump implements Machina {
         if (divisor == 0)
             divisor = 1;
 
-        anchor.getRelative(BlockFace.UP).setData((byte) (progress / divisor));
+        anchor.getRelative(cauldronFace).setData((byte) (progress / divisor));
     }
 
     /**
@@ -138,12 +143,12 @@ final class Pump implements Machina {
         ItemStack item = inventory.getItem(Fuel.smeltSlot);
         Material type = item.getType();
         if (type == Material.AIR) {
-            item.setType(Blueprint.drainMaterial);
+            item.setType(tubeMaterial);
             inventory.setItem(Fuel.smeltSlot, item);
             return true;
-        } else if (type == Blueprint.drainMaterial) {
+        } else if (type == tubeMaterial) {
             int amount = item.getAmount();
-            if (amount < Blueprint.drainMaterial.getMaxStackSize()) {
+            if (amount < tubeMaterial.getMaxStackSize()) {
                 item.setAmount(amount + 1);
                 inventory.setItem(Fuel.smeltSlot, item);
                 return true;
@@ -152,18 +157,21 @@ final class Pump implements Machina {
         return false;
     }
 
-    private interface Phase {
-        Phase run();
+    /**
+     * Represents a stage in the operation of the Pump
+     */
+    private interface Stage {
+        Stage run();
     }
 
-    private Phase phase = new Expand();
+    private Stage stage = new Expand();
 
-    private class Expand implements Phase {
-        /**
-         * Expands the pump's drain forward.
-         */
-        public Phase run() {
-            int size = drain.size();
+    /**
+     * In this stage, the Pump builds a tube forward.
+     */
+    private class Expand implements Stage {
+        public Stage run() {
+            int size = tube.size();
             if (size == maxLength)
                 return stop();
 
@@ -175,10 +183,10 @@ final class Pump implements Machina {
             // Try to take a drain block from the furnace.
             Inventory inventory = ((Furnace) anchor.getRelative(backward).getBlock().getState()).getInventory();
             ItemStack item = inventory.getItem(Fuel.smeltSlot);
-            if (item.getType() == Blueprint.drainMaterial) {
+            if (item.getType() == tubeMaterial) {
                 // Before taking, we have to simulate whether we can actually
                 // place the block.
-                if (!EventSimulator.blockPlace(target, Blueprint.drainMaterial.getId(), anchor.getRelative(forward, size), player))
+                if (!EventSimulator.blockPlace(target, tubeMaterial.getId(), anchor.getRelative(forward, size), player))
                     return stop();
 
                 int amount = item.getAmount();
@@ -188,90 +196,212 @@ final class Pump implements Machina {
                 } else {
                     inventory.clear(Fuel.smeltSlot);
                 }
-                target.setType(Blueprint.drainMaterial);
-                drain.add(target);
+                target.setType(tubeMaterial);
+                tube.add(target);
                 return this;
             }
             return stop();
         }
 
-        private Phase stop() {
-            if (drain.size() == 0)
+        private Stage stop() {
+            if (tube.size() == 0)
                 return null;
+            // Check which mode the pump should operate in.
+            Inventory inventory = ((Furnace) anchor.getRelative(backward).getBlock().getState()).getInventory();
+            ItemStack item = inventory.getItem(Fuel.fuelSlot);
+            if (item.getType() == Material.WATER_BUCKET) {
+                if (anchor.getWorld().getEnvironment() == World.Environment.NETHER && !player.hasPermission("machinapump.allow-fill-nether")) {
+                    return new Retract();
+                }
+                return new Fill();
+            }
             return new Drain();
         }
     }
 
-    private class Drain implements Phase {
-        private int depth = 1;
-        private int progress;
-        private int total;
+    /**
+     * Generalized middle stage of the Pump, which is to drain or fill and show progress.
+     */
+    private abstract class Process implements Stage {
+        final int width;
+        final int maxTargets;
+        int progress = 0;
+        int total = 0;
+        List<BlockLocation> targets;
 
-        private List<BlockLocation> targets = new ArrayList<BlockLocation>(maxLength * maxWidth);
-
-        Drain() {
-            determineTargets();
+        Process() {
+            int length = tube.size();
+            width = length / 2;
+            maxTargets = (width * 2) * length;
+            initialize();
         }
 
-        public Phase run() {
-            if (total == 0)
+        public Stage run() {
+            if (targets.size() == 0)
                 return new Retract();
 
             progress++;
 
-            if (progress == total) {
+            if (progress >= total) {
+                total = 0;
+                progress = 0;
                 for (BlockLocation target : targets) {
-                    if (target.checkType(Material.STATIONARY_WATER) || target.checkType(Material.WATER) && EventSimulator.blockBreak(target, player)) {
-                        target.setEmpty();
-                    }
+                    apply(target);
                 }
-                targets.clear();
 
-                depth++;
-                if (depth > maxDepth)
-                    return new Retract();
-
-                determineTargets();
+                targets = scan();
             }
 
             setCauldron(progress, total);
             return this;
         }
 
-        private void determineTargets() {
-            total = 0;
-            progress = 0;
-            for (BlockLocation d : drain) {
-                BlockVector depthVector = new BlockVector(0, -1 * depth, 0);
-                addTarget(d.getRelative(depthVector));
-                for (int i = 1; i <= maxWidth; i++) {
-                    addTarget(d.getRelative(depthVector.add(left, i)));
-                    addTarget(d.getRelative(depthVector.add(right, i)));
+        /**
+         * Function called during Process constructor. Executed before the
+         * subclass constructor, so member variables must be set during this
+         * function rather than inline or in the subclass constructor.
+         */
+        abstract void initialize();
+
+        /**
+         * Applies the process operation on a target.
+         * 
+         * @param target
+         */
+        abstract void apply(BlockLocation target);
+
+        /**
+         * Scans for and returns a list of targets to be processed when progress
+         * reaches total.
+         * 
+         * @return A list of target {@link BlockLocation}s.
+         */
+        abstract List<BlockLocation> scan();
+    }
+
+    /**
+     * Drains visible water from a (roughly) square area below the tube. 
+     */
+    private class Drain extends Process {
+        private int depth;
+
+        void initialize() {
+            targets = new ArrayList<BlockLocation>(maxTargets);
+            depth = 0;
+            for (BlockLocation t : tube) {
+                addTarget(targets, t.getRelative(down));
+                for (int i = 1; i <= width; i++) {
+                    addTarget(targets, t.getRelative(down.add(left, i)));
+                    addTarget(targets, t.getRelative(down.add(right, i)));
                 }
             }
         }
 
-        private void addTarget(BlockLocation target) {
-            if (target.checkType(Material.STATIONARY_WATER) || target.checkType(Material.WATER)) {
-                targets.add(target);
-                total++;
+        void apply(BlockLocation target) {
+            if (target.checkTypes(Material.STATIONARY_WATER, Material.WATER) && EventSimulator.blockBreak(target, player)) {
+                target.setEmpty();
             }
+        }
+
+        void addTarget(List<BlockLocation> targetArray, BlockLocation target) {
+            if (target.checkTypes(Material.STATIONARY_WATER, Material.WATER)) {
+                targetArray.add(target);
+                total++;
+            } else if (target.isEmpty()) {
+                targetArray.add(target);
+            }
+        }
+
+        List<BlockLocation> scan() {
+            depth++;
+            if (depth >= maxDepth) {
+                targets.clear();
+                return targets;
+            }
+            List<BlockLocation> newTargets = new ArrayList<BlockLocation>(targets.size());
+            for (BlockLocation i : targets) {
+                addTarget(newTargets, i.getRelative(down));
+            }
+            return newTargets;
         }
     }
 
-    private class Retract implements Phase {
-        /**
-         * Removes the pump's existing drain.
-         */
-        public Phase run() {
-            int size = drain.size();
+    /**
+     * Fills a (roughly) square area below the tube with water. 
+     */
+    private class Fill extends Process {
+        private List<BlockLocation> topLevel;
+        private int depthLimit;
+
+        void initialize() {
+            topLevel = new ArrayList<BlockLocation>(maxTargets);
+            depthLimit = maxDepth;
+            for (BlockLocation t : tube) {
+                addTopLevel(t.getRelative(down));
+                for (int i = 1; i <= width; i++) {
+                    addTopLevel(t.getRelative(down.add(left, i)));
+                    addTopLevel(t.getRelative(down.add(right, i)));
+                }
+            }
+            targets = scan();
+        }
+
+        void apply(BlockLocation target) {
+            if ((target.checkTypes(Material.AIR, Material.WATER, Material.STATIONARY_WATER)) && EventSimulator.blockPlace(target, Material.STATIONARY_WATER.getId(), target.getRelative(down), player)) {
+                target.getBlock().setTypeIdAndData(Material.STATIONARY_WATER.getId(), (byte) 0, true);
+            }
+        }
+
+        void addTopLevel(BlockLocation target) {
+            if (target.checkTypes(Material.AIR, Material.WATER, Material.STATIONARY_WATER)) {
+                topLevel.add(target);
+            }
+        }
+
+        List<BlockLocation> scan() {
+            int depth = 0;
+            int topLevelSize = topLevel.size();
+            List<BlockLocation> visible = new ArrayList<BlockLocation>(topLevelSize);
+            visible.addAll(topLevel);
+            List<BlockLocation> newTargets = new ArrayList<BlockLocation>(topLevelSize);
+            for (int i = 0; i < depthLimit; i++) {
+                for (Iterator<BlockLocation> it = visible.iterator(); it.hasNext();) {
+                    BlockLocation target = it.next().getRelative(down, i);
+                    Block targetBlock = target.getBlock();
+                    Material type = targetBlock.getType();
+                    byte data = targetBlock.getData();
+                    if (type == Material.AIR || type == Material.WATER || (type == Material.STATIONARY_WATER && data != 0)) {
+                        if (i == depth) {
+                            newTargets.add(target);
+                        } else {
+                            depth = i;
+                            newTargets.clear();
+                            newTargets.add(target);
+                        }
+                    } else if (!(type == Material.STATIONARY_WATER && data == 0)) {
+                        it.remove();
+                    }
+                }
+            }
+            total = newTargets.size();
+            depthLimit = depth;
+            return newTargets;
+        }
+    }
+
+    /**
+     * In this stage, the Pump retracts the tube it built in the Expand phase.
+     */
+    private class Retract implements Stage {
+        public Stage run() {
+            int size = tube.size();
             if (size == 0)
                 return null;
 
             if (!putDrainItem())
                 return null;
 
-            BlockLocation target = drain.remove(size - 1);
+            BlockLocation target = tube.remove(size - 1);
             target.setEmpty();
             return this;
         }

@@ -20,3 +20,6 @@ permissions:
     machinapump.deactivate-all:
         description: Allows deactivating any pump.
         default: op
+    machinapump.allow-fill-nether:
+        description: Allows a pump in fill mode to pour water in the Nether.
+        default: false
