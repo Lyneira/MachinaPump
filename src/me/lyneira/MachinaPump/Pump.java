@@ -27,7 +27,6 @@ import me.lyneira.MachinaCraft.Machina;
  * @author Lyneira
  */
 final class Pump implements Machina {
-    private final static Material tubeMaterial = Material.WOOD;
     private static final int maxLength = 9;
     private static final int maxDepth = 8;
     private static final int delay = 10;
@@ -41,10 +40,14 @@ final class Pump implements Machina {
     private final BlockFace backward;
     private final BlockVector left;
     private final BlockVector right;
+    private final Material tubeMaterial;
+    private final Material liquidMaterial;
+    private final Material stationaryLiquidMaterial;
+    private final Material filledBucketMaterial;
 
     private final List<BlockLocation> tube = new ArrayList<BlockLocation>(maxLength);
 
-    Pump(BlockRotation yaw, Player player, BlockLocation anchor, BlockFace leverFace, BlockFace cauldronFace) {
+    Pump(BlockRotation yaw, Player player, BlockLocation anchor, BlockFace leverFace, BlockFace cauldronFace, boolean lavaMode) {
         this.player = player;
         this.anchor = anchor;
         this.leverFace = leverFace;
@@ -53,6 +56,17 @@ final class Pump implements Machina {
         left = new BlockVector(yaw.getLeft().getYawFace());
         backward = yaw.getOpposite().getYawFace();
         right = new BlockVector(yaw.getRight().getYawFace());
+        if (lavaMode) {
+            tubeMaterial = Material.IRON_BLOCK;
+            liquidMaterial = Material.LAVA;
+            stationaryLiquidMaterial = Material.STATIONARY_LAVA;
+            filledBucketMaterial = Material.LAVA_BUCKET;
+        } else {
+            tubeMaterial = Material.WOOD;
+            liquidMaterial = Material.WATER;
+            stationaryLiquidMaterial = Material.STATIONARY_WATER;
+            filledBucketMaterial = Material.WATER_BUCKET;
+        }
 
         setFurnace(anchor, true);
     }
@@ -104,8 +118,7 @@ final class Pump implements Machina {
      */
     void setFurnace(BlockLocation anchor, boolean burning) {
         Block furnace = anchor.getRelative(backward).getBlock();
-        Inventory inventory = ((Furnace) furnace.getState()).getInventory();
-        Fuel.setFurnace(furnace, backward, burning, inventory);
+        Fuel.setFurnace(furnace, backward, burning);
     }
 
     /**
@@ -114,7 +127,10 @@ final class Pump implements Machina {
      * @param data
      */
     void setCauldron(byte data) {
-        anchor.getRelative(cauldronFace).setData(data);
+        Block cauldron = anchor.getRelative(cauldronFace).getBlock();
+        if (cauldron.getType() == Material.CAULDRON) {
+            cauldron.setData(data);
+        }
     }
 
     /**
@@ -186,7 +202,7 @@ final class Pump implements Machina {
             if (item.getType() == tubeMaterial) {
                 // Before taking, we have to simulate whether we can actually
                 // place the block.
-                if (!EventSimulator.blockPlace(target, tubeMaterial.getId(), anchor.getRelative(forward, size), player))
+                if (!EventSimulator.blockPlace(target, tubeMaterial.getId(), target.getRelative(backward, size), player))
                     return stop();
 
                 int amount = item.getAmount();
@@ -209,11 +225,19 @@ final class Pump implements Machina {
             // Check which mode the pump should operate in.
             Inventory inventory = ((Furnace) anchor.getRelative(backward).getBlock().getState()).getInventory();
             ItemStack item = inventory.getItem(Fuel.fuelSlot);
-            if (item.getType() == Material.WATER_BUCKET) {
-                if (anchor.getWorld().getEnvironment() == World.Environment.NETHER && !player.hasPermission("machinapump.allow-fill-nether")) {
+            if (item.getType() == filledBucketMaterial) {
+                if (filledBucketMaterial == Material.WATER_BUCKET && anchor.getWorld().getEnvironment() == World.Environment.NETHER && !player.hasPermission("machinapump.nether-water")) {
+                    player.sendMessage("You do not have permission to pour water with a pump in the nether.");
+                    return new Retract();
+                } else if (filledBucketMaterial == Material.LAVA_BUCKET && !player.hasPermission("machinapump.lava.fill")) {
+                    player.sendMessage("You do not have permission to pour lava with a pump.");
                     return new Retract();
                 }
                 return new Fill();
+            }
+            if (liquidMaterial == Material.LAVA && !player.hasPermission("machinapump.lava.drain")) {
+                player.sendMessage("You do not have permission to drain lava with a pump.");
+                return new Retract();
             }
             return new Drain();
         }
@@ -298,13 +322,13 @@ final class Pump implements Machina {
         }
 
         void apply(BlockLocation target) {
-            if (target.checkTypes(Material.STATIONARY_WATER, Material.WATER) && EventSimulator.blockBreak(target, player)) {
+            if (target.checkTypes(stationaryLiquidMaterial, liquidMaterial) && EventSimulator.blockBreak(target, player)) {
                 target.setEmpty();
             }
         }
 
         void addTarget(List<BlockLocation> targetArray, BlockLocation target) {
-            if (target.checkTypes(Material.STATIONARY_WATER, Material.WATER)) {
+            if (target.checkTypes(stationaryLiquidMaterial, liquidMaterial)) {
                 targetArray.add(target);
                 total++;
             } else if (target.isEmpty()) {
@@ -347,13 +371,13 @@ final class Pump implements Machina {
         }
 
         void apply(BlockLocation target) {
-            if ((target.checkTypes(Material.AIR, Material.WATER, Material.STATIONARY_WATER)) && EventSimulator.blockPlace(target, Material.STATIONARY_WATER.getId(), target.getRelative(down), player)) {
-                target.getBlock().setTypeIdAndData(Material.STATIONARY_WATER.getId(), (byte) 0, true);
+            if ((target.checkTypes(Material.AIR, liquidMaterial, stationaryLiquidMaterial)) && EventSimulator.blockPlace(target, stationaryLiquidMaterial.getId(), target.getRelative(down), player)) {
+                target.getBlock().setTypeIdAndData(stationaryLiquidMaterial.getId(), (byte) 0, true);
             }
         }
 
         void addTopLevel(BlockLocation target) {
-            if (target.checkTypes(Material.AIR, Material.WATER, Material.STATIONARY_WATER)) {
+            if (target.checkTypes(Material.AIR, liquidMaterial, stationaryLiquidMaterial)) {
                 topLevel.add(target);
             }
         }
@@ -370,7 +394,7 @@ final class Pump implements Machina {
                     Block targetBlock = target.getBlock();
                     Material type = targetBlock.getType();
                     byte data = targetBlock.getData();
-                    if (type == Material.AIR || type == Material.WATER || (type == Material.STATIONARY_WATER && data != 0)) {
+                    if (type == Material.AIR || type == liquidMaterial || (type == stationaryLiquidMaterial && data != 0)) {
                         if (i == depth) {
                             newTargets.add(target);
                         } else {
@@ -378,7 +402,7 @@ final class Pump implements Machina {
                             newTargets.clear();
                             newTargets.add(target);
                         }
-                    } else if (!(type == Material.STATIONARY_WATER && data == 0)) {
+                    } else if (!(type == stationaryLiquidMaterial && data == 0)) {
                         it.remove();
                     }
                 }
@@ -397,11 +421,14 @@ final class Pump implements Machina {
             int size = tube.size();
             if (size == 0)
                 return null;
+            
+            BlockLocation target = tube.remove(size - 1);
+            if (!EventSimulator.blockBreak(target, player))
+                return null;
 
             if (!putDrainItem())
                 return null;
 
-            BlockLocation target = tube.remove(size - 1);
             target.setEmpty();
             return this;
         }

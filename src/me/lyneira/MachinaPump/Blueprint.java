@@ -2,11 +2,13 @@ package me.lyneira.MachinaPump;
 
 import org.bukkit.Material;
 import org.bukkit.block.BlockFace;
+import org.bukkit.block.Furnace;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
 import me.lyneira.MachinaCraft.BlockLocation;
 import me.lyneira.MachinaCraft.BlockRotation;
+import me.lyneira.MachinaCraft.Fuel;
 import me.lyneira.MachinaCraft.Machina;
 import me.lyneira.MachinaCraft.MachinaBlueprint;
 
@@ -17,28 +19,31 @@ import me.lyneira.MachinaCraft.MachinaBlueprint;
  */
 final class Blueprint implements MachinaBlueprint {
     final static Blueprint instance = new Blueprint();
-    
+
     final static Material anchorMaterial = Material.GOLD_BLOCK;
-    
-    
+
     private Blueprint() {
         // Singleton
     }
-    
+
     public Machina detect(Player player, final BlockLocation anchor, final BlockFace leverFace, ItemStack itemInHand) {
-        if (!player.hasPermission("machinapump.activate"))
-            return null;
-        
         if (!anchor.checkType(anchorMaterial))
             return null;
 
         BlockRotation yaw = null;
         BlockFace cauldron = null;
+        boolean lavaMode = false;
         for (BlockRotation i : BlockRotation.values()) {
             BlockFace face = i.getYawFace();
             BlockLocation location = anchor.getRelative(face);
             if (location.checkType(Material.FURNACE)) {
                 yaw = i.getOpposite();
+                ItemStack item = ((Furnace) location.getBlock().getState()).getInventory().getItem(Fuel.smeltSlot);
+                if (item.getType() == Material.IRON_BLOCK) {
+                    lavaMode = true;
+                } else {
+                    lavaMode = false;
+                }
             } else if (location.checkType(Material.CAULDRON)) {
                 cauldron = face;
             }
@@ -46,9 +51,13 @@ final class Blueprint implements MachinaBlueprint {
         if (anchor.getRelative(BlockFace.UP).checkType(Material.CAULDRON)) {
             cauldron = BlockFace.UP;
         }
-        
+
         if (yaw != null && cauldron != null) {
-            return new Pump(yaw, player, anchor, leverFace, cauldron);
+            if (!player.hasPermission("machinapump.activate")) {
+                player.sendMessage("You do not have permission to activate a pump.");
+                return null;
+            }
+            return new Pump(yaw, player, anchor, leverFace, cauldron, lavaMode);
         }
         return null;
     }
